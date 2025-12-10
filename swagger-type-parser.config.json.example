@@ -1,0 +1,8 @@
+{
+  "input": "http://localhost:3542/api/v1/openapi.json",
+  "output": "./src/api/types",
+  "clean": true,
+  "pretty": true,
+  "verbose": false
+}
+
