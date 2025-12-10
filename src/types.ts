@@ -12,6 +12,8 @@ export interface Config {
   pretty?: boolean;
   /** Whether to log verbose debug information */
   verbose?: boolean;
+  /** Number of path segments to skip from the beginning when generating endpoint names (e.g., 1 = skip first 2 segments: "/api/v1/auth/login" -> "auth_login") */
+  pathPrefixSkip?: number;
 }
 
 /**

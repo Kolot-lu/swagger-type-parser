@@ -154,7 +154,7 @@ export function resolveRef(ref: string, spec: NormalizedSpec): Schema | Paramete
   const key = keyParts.join('/');
 
   switch (section) {
-    case 'components':
+    case 'components': {
       if (parts.length < 3) {
         return null;
       }
@@ -162,18 +162,23 @@ export function resolveRef(ref: string, spec: NormalizedSpec): Schema | Paramete
       const componentKey = parts.slice(2).join('/');
 
       switch (componentType) {
-        case 'schemas':
+        case 'schemas': {
           return spec.components.schemas[componentKey] || null;
-        case 'parameters':
+        }
+        case 'parameters': {
           return spec.components.parameters[componentKey] || null;
-        case 'responses':
+        }
+        case 'responses': {
           return spec.components.responses[componentKey] || null;
+        }
         default:
           return null;
       }
-    case 'definitions':
+    }
+    case 'definitions': {
       // Swagger 2.0 style (already converted, but handle for safety)
       return spec.components.schemas[key] || null;
+    }
     default:
       return null;
   }

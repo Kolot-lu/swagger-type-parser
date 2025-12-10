@@ -1,0 +1,42 @@
+# Source files
+src/
+*.ts
+!*.d.ts
+
+# Test files
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+test/
+__tests__/
+coverage/
+
+# Development files
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Config files
+tsconfig.json
+jest.config.js
+.eslintrc.json
+.prettierrc
+swagger-type-parser.config.json.example
+test.json
+
+# Build artifacts (only dist/ should be published)
+*.map
+!dist/**/*.map
+
+# Documentation (README.md and LICENSE are included via package.json files)
+# README.md is explicitly included in package.json
+
+# Dependencies
+node_modules/
+package-lock.json
+

@@ -7,7 +7,7 @@
 export * from './types.js';
 export * from './loader.js';
 export * from './parser.js';
-export * from './generator.js';
+export * from './generator/index.js';
 export * from './writer.js';
 export * from './config.js';
 

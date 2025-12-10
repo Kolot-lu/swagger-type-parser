@@ -1,5 +1,10 @@
 # swagger-type-parser
 
+[![npm version](https://img.shields.io/npm/v/swagger-type-parser)](https://www.npmjs.com/package/swagger-type-parser)
+[![npm downloads](https://img.shields.io/npm/dm/swagger-type-parser)](https://www.npmjs.com/package/swagger-type-parser)
+[![License](https://img.shields.io/npm/l/swagger-type-parser)](https://github.com/Kolot-lu/swagger-type-parser/blob/main/LICENSE)
+[![Node.js Version](https://img.shields.io/node/v/swagger-type-parser)](https://nodejs.org/)
+
 A CLI tool to generate TypeScript type definitions from OpenAPI/Swagger specifications. This tool helps frontend projects maintain type safety when working with backend APIs by automatically generating TypeScript types from API documentation.
 
 ## Features
@@ -8,8 +13,10 @@ A CLI tool to generate TypeScript type definitions from OpenAPI/Swagger specific
 - ✅ Supports OpenAPI 3.x and Swagger 2.0 (with automatic conversion)
 - ✅ Generates decomposed TypeScript types in a clean directory structure
 - ✅ Resolves `$ref` references automatically
-- ✅ Groups endpoints by tags for better organization
+- ✅ Groups endpoints by path segments for better organization
 - ✅ Generates types for schemas, request bodies, parameters, and responses
+- ✅ Includes JSDoc comments from OpenAPI descriptions
+- ✅ Configurable endpoint naming via path prefix skipping
 - ✅ Configurable via config file or CLI flags
 - ✅ Optional Prettier formatting for generated code
 
@@ -32,7 +39,7 @@ yarn add -D swagger-type-parser
 ### Using CLI Flags
 
 ```bash
-npx swagger-type-parser --input http://localhost:3542/api/v1/openapi.json --output ./src/api/types
+npx swagger-type-parser --input http://localhost:8000/api/v1/openapi.json --output ./src/api/types
 ```
 
 ### Using Config File
@@ -41,7 +48,7 @@ Create a `swagger-type-parser.config.json` file in your project root:
 
 ```json
 {
-  "input": "http://localhost:3542/api/v1/openapi.json",
+  "input": "http://localhost:8000/api/v1/openapi.json",
   "output": "./src/api/types",
   "clean": true,
   "pretty": true,
@@ -71,6 +78,7 @@ npx swagger-type-parser --config configs/swagger.config.json
 | `--clean` | | Clean output directory before generation | `false` |
 | `--pretty` | | Format generated code with Prettier | `false` |
 | `--verbose` | | Log verbose debug information | `false` |
+| `--path-prefix-skip` | | Number of path segment pairs to skip when generating endpoint names (e.g., 1 = skip first 2 segments: "/api/v1/auth/login" → "auth_login") | `0` |
 
 **Note:** CLI flags override values from the config file.
 
@@ -80,7 +88,7 @@ The tool supports multiple input sources:
 
 1. **HTTP/HTTPS URLs** - Fetch from a running API server:
    ```bash
-   --input http://localhost:3542/api/v1/openapi.json
+   --input http://localhost:8000/api/v1/openapi.json
    --input https://api.example.com/docs/openapi.json
    ```
 
@@ -92,7 +100,7 @@ The tool supports multiple input sources:
 
 ## Generated Directory Structure
 
-The tool generates TypeScript types in a decomposed structure:
+The tool generates TypeScript types in a decomposed structure. Endpoints are organized by path segments (excluding the last segment), making it easy to navigate and maintain:
 
 ```
 src/api/types/
@@ -101,17 +109,20 @@ src/api/types/
 │   ├── User.ts
 │   ├── Order.ts
 │   └── Product.ts
-├── endpoints/               # Endpoint type definitions (grouped by tag)
-│   ├── users/
-│   │   ├── GetUser.ts
-│   │   ├── CreateUser.ts
-│   │   └── UpdateUser.ts
-│   └── orders/
-│       ├── ListOrders.ts
-│       └── CreateOrder.ts
+├── endpoints/               # Endpoint type definitions (grouped by path segments)
+│   ├── auth/                # Endpoints under /api/v1/auth/*
+│   │   ├── auth_login.ts
+│   │   ├── auth_register.ts
+│   │   └── auth_me.ts
+│   ├── users/               # Endpoints under /api/v1/users/*
+│   │   ├── users_list.ts
+│   │   └── users_create.ts
+│   └── health.ts            # Endpoints with single segment (e.g., /api/v1/health)
 └── common/                  # Common utility types
     └── Http.ts             # HttpMethod, RequestConfig, etc.
 ```
+
+**Note:** The directory structure depends on the `pathPrefixSkip` configuration. With `pathPrefixSkip: 1`, paths like `/api/v1/auth/login` will be organized as `endpoints/auth/auth_login.ts`.
 
 ## Using Generated Types
 
@@ -125,32 +136,56 @@ import type { User, Order, Product } from './api/types';
 
 ### Import Endpoint Types
 
+Endpoint types are named based on the API path (not operationId). For example, `/api/v1/auth/login` becomes `auth_login.ts` (with `pathPrefixSkip: 1`):
+
 ```typescript
-import type { GetUser, CreateUser } from './api/types/endpoints/users/GetUser';
-import type { ListOrders } from './api/types/endpoints/orders/ListOrders';
+import type { 
+  auth_login_200Response,
+  auth_login_RequestBody 
+} from './api/types/endpoints/auth/auth_login';
+
+import type { 
+  users_list_200Response,
+  users_list_QueryParams 
+} from './api/types/endpoints/users/users_list';
 ```
 
 ### Example: Typed API Call
 
 ```typescript
-import type { GetUser, GetUser200Response } from './api/types/endpoints/users/GetUser';
+import type { auth_login_200Response, auth_login_RequestBody } from './api/types/endpoints/auth/auth_login';
 import type { User } from './api/types/schemas/User';
 
-async function fetchUser(userId: string): Promise<GetUser200Response> {
-  const response = await fetch(`/api/users/${userId}`, {
-    method: 'GET',
+async function login(email: string, password: string): Promise<auth_login_200Response> {
+  const body: auth_login_RequestBody = { email, password };
+  
+  const response = await fetch('/api/v1/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
   
   if (!response.ok) {
-    throw new Error('Failed to fetch user');
+    throw new Error('Login failed');
   }
   
   return response.json();
 }
 
 // Usage
-const user: User = await fetchUser('123');
+const result = await login('user@example.com', 'password123');
+// result is typed as auth_login_200Response
 ```
+
+### Generated Type Naming Convention
+
+- **Schemas**: Use the schema name from `components.schemas` (e.g., `User`, `Order`)
+- **Endpoints**: Based on API path converted to snake_case (e.g., `/api/v1/auth/login` → `auth_login`)
+- **Request Bodies**: `{endpointName}_RequestBody` (e.g., `auth_login_RequestBody`)
+- **Responses**: `{endpointName}_{statusCode}Response` (e.g., `auth_login_200Response`)
+- **Parameters**: `{endpointName}_PathParams`, `{endpointName}_QueryParams`, `{endpointName}_HeaderParams`
+
+All generated types include JSDoc comments from OpenAPI descriptions when available.
 
 ## Type Mapping
 
@@ -175,11 +210,12 @@ The config file (`swagger-type-parser.config.json`) supports the following optio
 
 ```json
 {
-  "input": "http://localhost:3542/api/v1/openapi.json",
+  "input": "http://localhost:8000/api/v1/openapi.json",
   "output": "./src/api/types",
   "clean": true,
   "pretty": true,
-  "verbose": false
+  "verbose": false,
+  "pathPrefixSkip": 1
 }
 ```
 
@@ -188,6 +224,65 @@ The config file (`swagger-type-parser.config.json`) supports the following optio
 - **`clean`** (optional): Remove all files in output directory before generation
 - **`pretty`** (optional): Format generated code with Prettier (requires Prettier to be installed)
 - **`verbose`** (optional): Enable verbose logging
+- **`pathPrefixSkip`** (optional): Number of path segment pairs to skip when generating endpoint names
+  - `0` (default): Use full path - `/api/v1/auth/login` → `api_v1_auth_login`
+  - `1`: Skip first 2 segments - `/api/v1/auth/login` → `auth_login`
+  - `2`: Skip first 4 segments - `/api/v1/auth/login` → (empty, would be `root`)
+
+### Path Prefix Skip Examples
+
+The `pathPrefixSkip` option helps customize endpoint naming based on your API structure:
+
+```bash
+# Skip /api/v1 prefix
+npx swagger-type-parser --input openapi.json --output ./types --path-prefix-skip 1
+
+# Result: /api/v1/auth/login → endpoints/auth/auth_login.ts
+# Result: /api/v1/users → endpoints/users.ts
+```
+
+This is especially useful when you want shorter, more meaningful endpoint names without the API version prefix.
+
+## Features in Detail
+
+### JSDoc Comments
+
+All generated types include JSDoc comments extracted from OpenAPI descriptions:
+
+```typescript
+/**
+ * User account information
+ * 
+ * Contains basic user profile data and authentication status.
+ */
+export type User = {
+  /** Unique user identifier */
+  id: number;
+  /** User's email address */
+  email: string;
+  /** User's full name */
+  name?: string;
+};
+```
+
+### Endpoint Organization
+
+Endpoints are automatically organized into folders based on their path segments. This makes it easy to:
+- Find related endpoints
+- Maintain a clean project structure
+- Navigate large API specifications
+
+For example, with `pathPrefixSkip: 1`:
+- `/api/v1/auth/login` → `endpoints/auth/auth_login.ts`
+- `/api/v1/auth/register` → `endpoints/auth/auth_register.ts`
+- `/api/v1/users/list` → `endpoints/users/users_list.ts`
+
+### Path Parameter Handling
+
+Path parameters (e.g., `{id}`, `{entity_type}`) are automatically removed from endpoint names and folder structure:
+
+- `/api/v1/users/{id}` → `endpoints/users/users.ts` (not `users_{id}.ts`)
+- `/api/v1/entities/{type}/{id}` → `endpoints/entities/entities.ts`
 
 ## Limitations
 
@@ -195,6 +290,7 @@ The config file (`swagger-type-parser.config.json`) supports the following optio
 - Complex OpenAPI features like `discriminator` may not be fully supported
 - Prettier formatting requires Prettier to be installed in your project
 - Some edge cases in Swagger 2.0 to OpenAPI 3.x conversion may not be handled
+- Endpoint names are based on paths, not `operationId` (for consistency and predictability)
 
 ## Future Improvements
 

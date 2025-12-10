@@ -2,6 +2,7 @@ import { mkdir, writeFile, rm } from 'fs/promises';
 import { join, dirname, relative, resolve } from 'path';
 import { existsSync } from 'fs';
 import type { TypeDefinition, NormalizedSpec } from './types.js';
+import { pathToEndpointName } from './generator/index.js';
 
 /**
  * Writes generated TypeScript types to the file system
@@ -14,7 +15,7 @@ export async function writeTypes(
   outputDir: string,
   types: Map<string, TypeDefinition>,
   spec: NormalizedSpec,
-  options: { clean?: boolean; pretty?: boolean; verbose?: boolean }
+  options: { clean?: boolean; pretty?: boolean; verbose?: boolean; pathPrefixSkip?: number }
 ): Promise<void> {
   // Clean output directory if requested
   if (options.clean && existsSync(outputDir)) {
@@ -57,24 +58,26 @@ export async function writeTypes(
     }
   }
 
-  // Write endpoint types (grouped by tag)
-  const endpointsByTag = new Map<string, Map<string, TypeDefinition>>();
+  // Write endpoint types (grouped by path segments)
+  const endpointsByFolder = new Map<string, Map<string, TypeDefinition>>();
 
   for (const [name, type] of endpointTypes.entries()) {
-    // Extract tag from endpoint (we need to get it from the spec)
-    const tag = extractTagFromEndpoint(name, spec);
-    if (!endpointsByTag.has(tag)) {
-      endpointsByTag.set(tag, new Map());
+    // Extract path from endpoint by looking it up in the spec
+    const endpointPath = extractPathFromEndpoint(name, spec, options.pathPrefixSkip || 0);
+    const folderPath = getEndpointFolderPath(endpointPath, options.pathPrefixSkip || 0);
+    
+    if (!endpointsByFolder.has(folderPath)) {
+      endpointsByFolder.set(folderPath, new Map());
     }
-    endpointsByTag.get(tag)!.set(name, type);
+    endpointsByFolder.get(folderPath)!.set(name, type);
   }
 
-  for (const [tag, endpoints] of endpointsByTag.entries()) {
-    const tagDir = join(endpointsDir, tag);
-    await mkdir(tagDir, { recursive: true });
+  for (const [folderPath, endpoints] of endpointsByFolder.entries()) {
+    const folderDir = folderPath === '' ? endpointsDir : join(endpointsDir, folderPath);
+    await mkdir(folderDir, { recursive: true });
 
     for (const [name, type] of endpoints.entries()) {
-      const filePath = join(tagDir, `${name}.ts`);
+      const filePath = join(folderDir, `${name}.ts`);
       await writeTypeFile(filePath, type, schemaTypes, outputDir, options);
       if (options.verbose) {
         console.log(`Generated: ${filePath}`);
@@ -83,7 +86,7 @@ export async function writeTypes(
   }
 
   // Write index files
-  await writeIndexFiles(outputDir, schemasDir, endpointsDir, schemaTypes, endpointsByTag);
+  await writeIndexFiles(outputDir, schemasDir, endpointsDir, schemaTypes, endpointsByFolder);
 }
 
 /**
@@ -161,14 +164,14 @@ export interface RequestConfig {
  * @param schemasDir - Schemas directory
  * @param endpointsDir - Endpoints directory
  * @param schemaTypes - All schema types
- * @param endpointsByTag - Endpoints grouped by tag
+ * @param endpointsByFolder - Endpoints grouped by folder path
  */
 async function writeIndexFiles(
   outputDir: string,
   schemasDir: string,
   endpointsDir: string,
   schemaTypes: Map<string, TypeDefinition>,
-  endpointsByTag: Map<string, Map<string, TypeDefinition>>
+  endpointsByFolder: Map<string, Map<string, TypeDefinition>>
 ): Promise<void> {
   // Write schemas index
   const schemaExports: string[] = [];
@@ -178,9 +181,10 @@ async function writeIndexFiles(
 
   // Write endpoints index
   const endpointExports: string[] = [];
-  for (const [tag, endpoints] of endpointsByTag.entries()) {
+  for (const [folderPath, endpoints] of endpointsByFolder.entries()) {
     for (const name of endpoints.keys()) {
-      endpointExports.push(`export type { ${name} } from './endpoints/${tag}/${name}';`);
+      const relativePath = folderPath === '' ? `./endpoints/${name}` : `./endpoints/${folderPath}/${name}`;
+      endpointExports.push(`export type { ${name} } from '${relativePath}';`);
     }
   }
 
@@ -200,37 +204,56 @@ async function writeIndexFiles(
 }
 
 /**
- * Extracts tag from endpoint name by looking it up in the spec
+ * Extracts path from endpoint name by looking it up in the spec
  * @param endpointName - Endpoint operation ID
  * @param spec - Normalized specification
- * @returns Tag name
+ * @param pathPrefixSkip - Number of path segments to skip (must match the skip used when generating the name)
+ * @returns API path
  */
-function extractTagFromEndpoint(endpointName: string, spec: NormalizedSpec): string {
+function extractPathFromEndpoint(endpointName: string, spec: NormalizedSpec, pathPrefixSkip: number = 0): string {
   for (const [path, pathItem] of Object.entries(spec.paths)) {
     const methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as const;
     for (const method of methods) {
       const operation = pathItem[method];
-      if (operation && (operation.operationId === endpointName || generateOperationId(method, path) === endpointName)) {
-        return operation.tags?.[0] || 'default';
+      if (operation) {
+        // Check if this endpoint matches by comparing path-based name with the same skip value
+        const pathBasedName = pathToEndpointName(path, pathPrefixSkip);
+        if (pathBasedName === endpointName || operation.operationId === endpointName) {
+          return path;
+        }
       }
     }
   }
-  return 'default';
+  return '/';
 }
 
+
 /**
- * Generates operation ID from method and path (same logic as in generator)
- * @param method - HTTP method
+ * Gets folder path for endpoint based on path segments (all except last)
  * @param path - API path
- * @returns Operation ID
+ * @param pathPrefixSkip - Number of path segments to skip
+ * @returns Folder path (e.g., "auth" for "/api/v1/auth/login" with skip=1)
  */
-function generateOperationId(method: string, path: string): string {
-  const pathParts = path
-    .split('/')
-    .filter((p) => p && !p.startsWith('{'))
-    .map((p) => p.charAt(0).toUpperCase() + p.slice(1));
-  const methodCapitalized = method.charAt(0).toUpperCase() + method.slice(1);
-  return methodCapitalized + pathParts.join('');
+function getEndpointFolderPath(path: string, pathPrefixSkip: number = 0): string {
+  if (path === '/' || path.trim() === '' || path.replace(/^\/+|\/+$/g, '') === '') {
+    return '';
+  }
+  
+  const segments = path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+  const filteredSegments = segments.filter(segment => !segment.includes('{') && !segment.includes('}'));
+  const skipCount = pathPrefixSkip > 0 ? pathPrefixSkip * 2 : 0;
+  const skippedSegments = filteredSegments.slice(skipCount);
+  
+  // If no segments or only one segment, return empty (no subfolder)
+  if (skippedSegments.length <= 1) {
+    return '';
+  }
+  
+  // Take all segments except the last one
+  const folderSegments = skippedSegments.slice(0, -1);
+  const processedSegments = folderSegments.map(segment => segment.replace(/-/g, '_'));
+  
+  return processedSegments.join('/').toLowerCase();
 }
 
 /**

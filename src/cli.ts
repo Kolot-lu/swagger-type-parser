@@ -3,7 +3,7 @@
 import { Command } from 'commander';
 import { loadSpec, isOpenAPI, isSwagger } from './loader.js';
 import { normalizeSpec } from './parser.js';
-import { generateTypes } from './generator.js';
+import { generateTypes } from './generator/index.js';
 import { writeTypes } from './writer.js';
 import { mergeConfig, validateConfig } from './config.js';
 import type { Config } from './types.js';
@@ -30,6 +30,7 @@ async function main(): Promise<void> {
     .option('--clean', 'Clean output directory before generation', false)
     .option('--pretty', 'Format generated code with Prettier', false)
     .option('--verbose', 'Log verbose debug information', false)
+    .option('--path-prefix-skip <number>', 'Number of path segments to skip from beginning (e.g., 1 = skip first 2 segments: "/api/v1/auth/login" -> "auth_login")', (value) => parseInt(value, 10))
     .parse(process.argv);
 
   const options = program.opts<Config & { config?: string }>();
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
         clean: options.clean,
         pretty: options.pretty,
         verbose: options.verbose,
+        pathPrefixSkip: options.pathPrefixSkip,
       },
       options.config
     );
@@ -74,7 +76,7 @@ async function main(): Promise<void> {
       console.log(`Found ${Object.keys(normalized.components.schemas).length} schemas`);
       console.log(`Found ${Object.keys(normalized.paths).length} paths`);
     }
-    const types = generateTypes(normalized);
+    const types = generateTypes(normalized, config);
 
     if (config.verbose) {
       console.log(`Generated ${types.size} type definitions`);
@@ -88,6 +90,7 @@ async function main(): Promise<void> {
       clean: config.clean,
       pretty: config.pretty,
       verbose: config.verbose,
+      pathPrefixSkip: config.pathPrefixSkip,
     });
 
     console.log(`✅ Successfully generated TypeScript types in ${config.output}`);

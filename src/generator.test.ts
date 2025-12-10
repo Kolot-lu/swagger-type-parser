@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { generateTypes } from './generator.js';
+import { generateTypes } from './generator/index.js';
 import type { NormalizedSpec } from './types.js';
 
 describe('generator', () => {

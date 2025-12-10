@@ -1,7 +1,7 @@
 {
   "name": "swagger-type-parser",
   "version": "1.0.0",
-  "description": "CLI tool to generate TypeScript types from OpenAPI/Swagger specifications",
+  "description": "CLI tool to generate TypeScript type definitions from OpenAPI/Swagger specifications. Automatically creates decomposed, type-safe TypeScript types for your frontend projects with support for schemas, endpoints, request bodies, parameters, and responses.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,10 +22,25 @@
     "typescript",
     "type-generation",
     "api",
-    "cli"
+    "cli",
+    "code-generation",
+    "openapi-generator",
+    "swagger-generator",
+    "typescript-types",
+    "api-types",
+    "frontend",
+    "type-safety"
   ],
-  "author": "",
+  "author": "Kolot <contact@kolot.lu>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kolot-lu/swagger-type-parser.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Kolot-lu/swagger-type-parser/issues"
+  },
+  "homepage": "https://github.com/Kolot-lu/swagger-type-parser#readme",
   "engines": {
     "node": ">=18.0.0"
   },
