@@ -1,9 +1,9 @@
 # swagger-type-parser
 
-[![npm version](https://img.shields.io/npm/v/swagger-type-parser)](https://www.npmjs.com/package/swagger-type-parser)
-[![npm downloads](https://img.shields.io/npm/dm/swagger-type-parser)](https://www.npmjs.com/package/swagger-type-parser)
-[![License](https://img.shields.io/npm/l/swagger-type-parser)](https://github.com/Kolot-lu/swagger-type-parser/blob/main/LICENSE)
-[![Node.js Version](https://img.shields.io/node/v/swagger-type-parser)](https://nodejs.org/)
+[![npm version](https://img.shields.io/npm/v/@kolot/swagger-type-parser)](https://www.npmjs.com/package/@kolot/swagger-type-parser)
+[![npm downloads](https://img.shields.io/npm/dm/@kolot/swagger-type-parser)](https://www.npmjs.com/package/@kolot/swagger-type-parser)
+[![License](https://img.shields.io/npm/l/@kolot/swagger-type-parser)](https://github.com/Kolot-lu/swagger-type-parser/blob/main/LICENSE)
+[![Node.js Version](https://img.shields.io/node/v/@kolot/swagger-type-parser)](https://nodejs.org/)
 
 A CLI tool to generate TypeScript type definitions from OpenAPI/Swagger specifications. This tool helps frontend projects maintain type safety when working with backend APIs by automatically generating TypeScript types from API documentation.
 
@@ -23,15 +23,15 @@ A CLI tool to generate TypeScript type definitions from OpenAPI/Swagger specific
 ## Installation
 
 ```bash
-npm install --save-dev swagger-type-parser
+npm install --save-dev @kolot/swagger-type-parser
 
 # or
 
-pnpm add -D swagger-type-parser
+pnpm add -D @kolot/swagger-type-parser
 
 # or
 
-yarn add -D swagger-type-parser
+yarn add -D @kolot/swagger-type-parser
 ```
 
 ## Basic Usage
@@ -39,7 +39,7 @@ yarn add -D swagger-type-parser
 ### Using CLI Flags
 
 ```bash
-npx swagger-type-parser --input http://localhost:8000/api/v1/openapi.json --output ./src/api/types
+npx @kolot/swagger-type-parser --input http://localhost:8000/api/v1/openapi.json --output ./src/api/types
 ```
 
 ### Using Config File
@@ -59,13 +59,13 @@ Create a `swagger-type-parser.config.json` file in your project root:
 Then run:
 
 ```bash
-npx swagger-type-parser
+npx @kolot/swagger-type-parser
 ```
 
 ### Custom Config File Path
 
 ```bash
-npx swagger-type-parser --config configs/swagger.config.json
+npx @kolot/swagger-type-parser --config configs/swagger.config.json
 ```
 
 ## CLI Options
@@ -235,7 +235,7 @@ The `pathPrefixSkip` option helps customize endpoint naming based on your API st
 
 ```bash
 # Skip /api/v1 prefix
-npx swagger-type-parser --input openapi.json --output ./types --path-prefix-skip 1
+npx @kolot/swagger-type-parser --input openapi.json --output ./types --path-prefix-skip 1
 
 # Result: /api/v1/auth/login → endpoints/auth/auth_login.ts
 # Result: /api/v1/users → endpoints/users.ts

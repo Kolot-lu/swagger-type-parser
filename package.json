@@ -1,5 +1,5 @@
 {
-  "name": "swagger-type-parser",
+  "name": "@kolot/swagger-type-parser",
   "version": "1.0.0",
   "description": "CLI tool to generate TypeScript type definitions from OpenAPI/Swagger specifications. Automatically creates decomposed, type-safe TypeScript types for your frontend projects with support for schemas, endpoints, request bodies, parameters, and responses.",
   "type": "module",
