@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "swagger-type-parser": "./dist/cli.js"
+    "swagger-type-parser": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
@@ -35,7 +35,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Kolot-lu/swagger-type-parser.git"
+    "url": "git+https://github.com/Kolot-lu/swagger-type-parser.git"
   },
   "bugs": {
     "url": "https://github.com/Kolot-lu/swagger-type-parser/issues"
@@ -67,4 +67,3 @@
     "LICENSE"
   ]
 }
-
