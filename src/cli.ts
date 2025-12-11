@@ -31,6 +31,7 @@ async function main(): Promise<void> {
     .option('--pretty', 'Format generated code with Prettier', false)
     .option('--verbose', 'Log verbose debug information', false)
     .option('--path-prefix-skip <number>', 'Number of path segments to skip from beginning (e.g., 1 = skip first 2 segments: "/api/v1/auth/login" -> "auth_login")', (value) => parseInt(value, 10))
+    .option('--generate-api-endpoints', 'Generate API endpoint URL constants for easy access from frontend', false)
     .parse(process.argv);
 
   const options = program.opts<Config & { config?: string }>();
@@ -45,6 +46,7 @@ async function main(): Promise<void> {
         pretty: options.pretty,
         verbose: options.verbose,
         pathPrefixSkip: options.pathPrefixSkip,
+        generateApiEndpoints: options.generateApiEndpoints,
       },
       options.config
     );
@@ -91,6 +93,7 @@ async function main(): Promise<void> {
       pretty: config.pretty,
       verbose: config.verbose,
       pathPrefixSkip: config.pathPrefixSkip,
+      generateApiEndpoints: config.generateApiEndpoints,
     });
 
     console.log(`✅ Successfully generated TypeScript types in ${config.output}`);

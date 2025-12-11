@@ -4,6 +4,7 @@
   "clean": true,
   "pretty": true,
   "verbose": false,
-  "pathPrefixSkip": 1
+  "pathPrefixSkip": 1,
+  "generateApiEndpoints": true
 }
 

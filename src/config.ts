@@ -23,9 +23,19 @@ export function loadConfigFile(configPath: string): Config | null {
 }
 
 /**
+ * Checks if a flag was explicitly provided in CLI arguments
+ * @param flagName - Flag name (e.g., '--generate-api-endpoints')
+ * @returns True if flag was explicitly provided
+ */
+function isFlagProvided(flagName: string): boolean {
+  return process.argv.includes(flagName);
+}
+
+/**
  * Filters out undefined values from a configuration object
+ * For boolean flags, only includes them if they were explicitly provided in CLI
  * @param config - Configuration object to filter
- * @returns Configuration object without undefined values
+ * @returns Configuration object without undefined values and non-explicit boolean flags
  */
 function filterUndefined(config: Config): Partial<Config> {
   const filtered: Partial<Config> = {};
@@ -47,6 +57,10 @@ function filterUndefined(config: Config): Partial<Config> {
   }
   if (config.pathPrefixSkip !== undefined) {
     filtered.pathPrefixSkip = config.pathPrefixSkip;
+  }
+  // For boolean flags, only include if explicitly provided in CLI
+  if (config.generateApiEndpoints !== undefined && isFlagProvided('--generate-api-endpoints')) {
+    filtered.generateApiEndpoints = config.generateApiEndpoints;
   }
   
   return filtered;
