@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   program
     .name('swagger-type-parser')
     .description('Generate TypeScript types from OpenAPI/Swagger specifications')
-    .version('1.0.0')
+    .version('1.0.1')
     .option('-i, --input <url-or-path>', 'URL or path to OpenAPI/Swagger JSON')
     .option('-o, --output <directory>', 'Output directory for generated TypeScript files')
     .option('-c, --config <path>', 'Path to config file (default: swagger-type-parser.config.json)')
