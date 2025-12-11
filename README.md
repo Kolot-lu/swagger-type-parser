@@ -17,6 +17,7 @@ A CLI tool to generate TypeScript type definitions from OpenAPI/Swagger specific
 - ✅ Generates types for schemas, request bodies, parameters, and responses
 - ✅ Includes JSDoc comments from OpenAPI descriptions
 - ✅ Configurable endpoint naming via path prefix skipping
+- ✅ Generates API endpoint URL constants for type-safe API calls
 - ✅ Configurable via config file or CLI flags
 - ✅ Optional Prettier formatting for generated code
 
@@ -79,6 +80,7 @@ npx @kolot/swagger-type-parser --config configs/swagger.config.json
 | `--pretty` | | Format generated code with Prettier | `false` |
 | `--verbose` | | Log verbose debug information | `false` |
 | `--path-prefix-skip` | | Number of path segment pairs to skip when generating endpoint names (e.g., 1 = skip first 2 segments: "/api/v1/auth/login" → "auth_login") | `0` |
+| `--generate-api-endpoints` | | Generate API endpoint URL constants for easy access from frontend | `false` |
 
 **Note:** CLI flags override values from the config file.
 
@@ -118,6 +120,8 @@ src/api/types/
 │   │   ├── users_list.ts
 │   │   └── users_create.ts
 │   └── health.ts            # Endpoints with single segment (e.g., /api/v1/health)
+├── api/                     # API endpoint URL constants (if --generate-api-endpoints is enabled)
+│   └── index.ts            # apiEndpoints object with nested structure
 └── common/                  # Common utility types
     └── Http.ts             # HttpMethod, RequestConfig, etc.
 ```
@@ -177,6 +181,101 @@ const result = await login('user@example.com', 'password123');
 // result is typed as auth_login_200Response
 ```
 
+### Using API Endpoint Constants
+
+When `--generate-api-endpoints` flag is enabled, the tool generates a nested object structure with all API endpoint URLs, organized by their folder hierarchy. This eliminates the need to manually write URL strings:
+
+```typescript
+import { apiEndpoints } from './api/types/api';
+import type { auth_login_200Response, auth_login_RequestBody } from './api/types/endpoints/auth/auth_login';
+
+async function login(email: string, password: string): Promise<auth_login_200Response> {
+  const body: auth_login_RequestBody = { email, password };
+  
+  const response = await fetch(apiEndpoints.auth.auth_login, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  
+  if (!response.ok) {
+    throw new Error('Login failed');
+  }
+  
+  return response.json();
+}
+
+// Or with an API client
+await apiClient.post<auth_login_200Response>(
+  apiEndpoints.auth.auth_login,
+  payload,
+  {
+    skipAuth: true, // Public endpoint
+  },
+);
+```
+
+### Handling Path Parameters
+
+For endpoints with path parameters (e.g., `/api/v1/users/profile/{user_id}`), use the `buildUrl` utility function to replace parameters:
+
+```typescript
+import { apiEndpoints, buildUrl } from './api/types/api';
+import type { users_profile_200Response, users_profile_PathParams } from './api/types/endpoints/users/users_profile';
+
+// Single parameter
+const url = buildUrl(apiEndpoints.users.users_profile, { user_id: '123' });
+// Returns: '/api/v1/users/profile/123'
+
+// Multiple parameters
+const url2 = buildUrl(
+  apiEndpoints.dynamic_fields.dynamic_fields_entities,
+  { entity_type: 'user_profile', entity_id: '456' }
+);
+// Returns: '/api/v1/dynamic-fields/entities/user_profile/456'
+
+// Type-safe usage with PathParams
+async function getUserProfile(userId: string): Promise<users_profile_200Response> {
+  const params: users_profile_PathParams = { user_id: userId };
+  const url = buildUrl(apiEndpoints.users.users_profile, params);
+  
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  
+  return response.json();
+}
+
+// Endpoints without parameters work as-is
+const loginUrl = apiEndpoints.auth.auth_login;
+// No need to use buildUrl for endpoints without parameters
+```
+
+The `apiEndpoints` object structure matches the endpoint folder organization:
+
+```typescript
+// Generated structure example (with pathPrefixSkip: 1)
+export const apiEndpoints = {
+  auth: {
+    auth_login: '/api/v1/auth/login',
+    auth_register: '/api/v1/auth/register',
+    auth_me: '/api/v1/auth/me',
+  },
+  users: {
+    users_list: '/api/v1/users',
+    users_detail: '/api/v1/users/{id}',
+  },
+  // ...
+} as const;
+```
+
+**Benefits:**
+- ✅ Type-safe endpoint URLs (autocomplete support)
+- ✅ No manual URL string writing
+- ✅ Automatic updates when API changes
+- ✅ Consistent with endpoint type organization
+
 ### Generated Type Naming Convention
 
 - **Schemas**: Use the schema name from `components.schemas` (e.g., `User`, `Order`)
@@ -225,6 +324,7 @@ The config file (`swagger-type-parser.config.json`) supports the following optio
 - **`pretty`** (optional): Format generated code with Prettier (requires Prettier to be installed)
 - **`verbose`** (optional): Enable verbose logging
 - **`pathPrefixSkip`** (optional): Number of path segment pairs to skip when generating endpoint names
+- **`generateApiEndpoints`** (optional): Generate API endpoint URL constants for easy access from frontend
   - `0` (default): Use full path - `/api/v1/auth/login` → `api_v1_auth_login`
   - `1`: Skip first 2 segments - `/api/v1/auth/login` → `auth_login`
   - `2`: Skip first 4 segments - `/api/v1/auth/login` → (empty, would be `root`)

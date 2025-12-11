@@ -23,8 +23,53 @@ export function loadConfigFile(configPath: string): Config | null {
 }
 
 /**
+ * Checks if a flag was explicitly provided in CLI arguments
+ * @param flagName - Flag name (e.g., '--generate-api-endpoints')
+ * @returns True if flag was explicitly provided
+ */
+function isFlagProvided(flagName: string): boolean {
+  return process.argv.includes(flagName);
+}
+
+/**
+ * Filters out undefined values from a configuration object
+ * For boolean flags, only includes them if they were explicitly provided in CLI
+ * @param config - Configuration object to filter
+ * @returns Configuration object without undefined values and non-explicit boolean flags
+ */
+function filterUndefined(config: Config): Partial<Config> {
+  const filtered: Partial<Config> = {};
+  
+  if (config.input !== undefined) {
+    filtered.input = config.input;
+  }
+  if (config.output !== undefined) {
+    filtered.output = config.output;
+  }
+  if (config.clean !== undefined) {
+    filtered.clean = config.clean;
+  }
+  if (config.pretty !== undefined) {
+    filtered.pretty = config.pretty;
+  }
+  if (config.verbose !== undefined) {
+    filtered.verbose = config.verbose;
+  }
+  if (config.pathPrefixSkip !== undefined) {
+    filtered.pathPrefixSkip = config.pathPrefixSkip;
+  }
+  // For boolean flags, only include if explicitly provided in CLI
+  if (config.generateApiEndpoints !== undefined && isFlagProvided('--generate-api-endpoints')) {
+    filtered.generateApiEndpoints = config.generateApiEndpoints;
+  }
+  
+  return filtered;
+}
+
+/**
  * Merges CLI arguments with config file values (CLI takes precedence)
- * @param cliConfig - Configuration from CLI arguments
+ * Only non-undefined CLI values override file config values
+ * @param cliConfig - Configuration from CLI arguments (may contain undefined values)
  * @param configPath - Optional path to config file
  * @returns Merged configuration
  */
@@ -42,10 +87,13 @@ export function mergeConfig(cliConfig: Config, configPath?: string): Config {
     fileConfig = loadConfigFile(defaultPath);
   }
 
-  // CLI config overrides file config
+  // Filter out undefined values from CLI config to avoid overwriting file config
+  const filteredCliConfig = filterUndefined(cliConfig);
+
+  // CLI config overrides file config (only non-undefined values)
   return {
-    ...fileConfig,
-    ...cliConfig,
+    ...(fileConfig || {}),
+    ...filteredCliConfig,
   };
 }
 

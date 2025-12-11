@@ -3,6 +3,7 @@ import { join, dirname, relative, resolve } from 'path';
 import { existsSync } from 'fs';
 import type { TypeDefinition, NormalizedSpec } from './types.js';
 import { pathToEndpointName } from './generator/index.js';
+import { generateApiEndpointsFile } from './generator/api-endpoints-generator.js';
 
 /**
  * Writes generated TypeScript types to the file system
@@ -15,7 +16,7 @@ export async function writeTypes(
   outputDir: string,
   types: Map<string, TypeDefinition>,
   spec: NormalizedSpec,
-  options: { clean?: boolean; pretty?: boolean; verbose?: boolean; pathPrefixSkip?: number }
+  options: { clean?: boolean; pretty?: boolean; verbose?: boolean; pathPrefixSkip?: number; generateApiEndpoints?: boolean }
 ): Promise<void> {
   // Clean output directory if requested
   if (options.clean && existsSync(outputDir)) {
@@ -29,10 +30,16 @@ export async function writeTypes(
   const schemasDir = join(outputDir, 'schemas');
   const endpointsDir = join(outputDir, 'endpoints');
   const commonDir = join(outputDir, 'common');
+  const apiDir = join(outputDir, 'api');
 
   await mkdir(schemasDir, { recursive: true });
   await mkdir(endpointsDir, { recursive: true });
   await mkdir(commonDir, { recursive: true });
+  
+  // Create API directory if endpoints generation is enabled
+  if (options.generateApiEndpoints) {
+    await mkdir(apiDir, { recursive: true });
+  }
 
   // Write common types
   await writeCommonTypes(commonDir);
@@ -85,8 +92,16 @@ export async function writeTypes(
     }
   }
 
+  // Write API endpoints if enabled
+  if (options.generateApiEndpoints) {
+    await writeApiEndpoints(apiDir, spec, options);
+    if (options.verbose) {
+      console.log(`Generated: ${join(apiDir, 'index.ts')}`);
+    }
+  }
+
   // Write index files
-  await writeIndexFiles(outputDir, schemasDir, endpointsDir, schemaTypes, endpointsByFolder);
+  await writeIndexFiles(outputDir, schemasDir, endpointsDir, schemaTypes, endpointsByFolder, options.generateApiEndpoints);
 }
 
 /**
@@ -159,19 +174,57 @@ export interface RequestConfig {
 }
 
 /**
+ * Writes API endpoints constants file
+ * @param apiDir - API directory path
+ * @param spec - Normalized specification
+ * @param options - Writer options
+ */
+async function writeApiEndpoints(
+  apiDir: string,
+  spec: NormalizedSpec,
+  options: { pretty?: boolean; pathPrefixSkip?: number }
+): Promise<void> {
+  const content = generateApiEndpointsFile(spec, {
+    pathPrefixSkip: options.pathPrefixSkip,
+  });
+
+  // Format with Prettier if requested
+  let finalContent = content;
+  if (options.pretty) {
+    try {
+      const prettier = await import('prettier');
+      finalContent = await prettier.format(content, {
+        parser: 'typescript',
+        singleQuote: true,
+        semi: true,
+        trailingComma: 'es5',
+        printWidth: 100,
+      });
+    } catch {
+      // Prettier not available, use as-is
+      finalContent = content;
+    }
+  }
+
+  await writeFile(join(apiDir, 'index.ts'), finalContent, 'utf-8');
+}
+
+/**
  * Writes index files for easy imports
  * @param outputDir - Root output directory
  * @param schemasDir - Schemas directory
  * @param endpointsDir - Endpoints directory
  * @param schemaTypes - All schema types
  * @param endpointsByFolder - Endpoints grouped by folder path
+ * @param generateApiEndpoints - Whether API endpoints were generated
  */
 async function writeIndexFiles(
   outputDir: string,
   schemasDir: string,
   endpointsDir: string,
   schemaTypes: Map<string, TypeDefinition>,
-  endpointsByFolder: Map<string, Map<string, TypeDefinition>>
+  endpointsByFolder: Map<string, Map<string, TypeDefinition>>,
+  generateApiEndpoints?: boolean
 ): Promise<void> {
   // Write schemas index
   const schemaExports: string[] = [];
@@ -189,7 +242,7 @@ async function writeIndexFiles(
   }
 
   // Write main index
-  const mainIndex = [
+  const mainIndexLines = [
     "// Common types",
     "export * from './common/Http';",
     "",
@@ -198,7 +251,16 @@ async function writeIndexFiles(
     "",
     "// Endpoint types",
     ...endpointExports,
-  ].join('\n');
+  ];
+  
+  // Add API endpoints export if generated
+  if (generateApiEndpoints) {
+    mainIndexLines.push("");
+    mainIndexLines.push("// API endpoint URL constants");
+    mainIndexLines.push("export * from './api';");
+  }
+  
+  const mainIndex = mainIndexLines.join('\n');
 
   await writeFile(join(outputDir, 'index.ts'), mainIndex, 'utf-8');
 }
