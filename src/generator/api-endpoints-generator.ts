@@ -7,7 +7,7 @@
  * manually writing URL strings.
  */
 
-import type { NormalizedSpec, Config } from '../types.js';
+import type { NormalizedSpec, Config, EndpointType } from '../types.js';
 import { generateEndpointTypes } from './endpoint-generator.js';
 
 /**
@@ -15,6 +15,18 @@ import { generateEndpointTypes } from './endpoint-generator.js';
  */
 interface ApiEndpointsStructure {
   [key: string]: string | ApiEndpointsStructure;
+}
+
+/**
+ * Internal representation of an endpoint used during name resolution.
+ * It keeps track of the folder path, base endpoint name and HTTP method
+ * so we can generate stable and collision‑free keys.
+ */
+interface EndpointMeta {
+  folderPath: string;
+  baseName: string;
+  method: EndpointType['method'];
+  path: string;
 }
 
 /**
@@ -44,14 +56,26 @@ interface ApiEndpointsStructure {
 export function generateApiEndpoints(spec: NormalizedSpec, config: Config = {}): string {
   const pathPrefixSkip = config.pathPrefixSkip || 0;
   const endpoints = generateEndpointTypes(spec, config);
-  
+
+  // Prepare metadata for all endpoints (folder path, base name, method, path)
+  const metas: EndpointMeta[] = endpoints.map((endpoint) => ({
+    folderPath: getEndpointFolderPath(endpoint.path, pathPrefixSkip),
+    baseName: endpoint.operationId,
+    method: endpoint.method,
+    path: endpoint.path,
+  }));
+
+  // Resolve final, collision‑free keys for each endpoint within its folder
+  const resolvedNames = resolveEndpointNames(metas);
+
   // Build nested structure organized by folder paths
   const structure: ApiEndpointsStructure = {};
   
-  for (const endpoint of endpoints) {
-    const folderPath = getEndpointFolderPath(endpoint.path, pathPrefixSkip);
-    const endpointName = endpoint.operationId;
-    const endpointPath = endpoint.path;
+  for (let i = 0; i < metas.length; i += 1) {
+    const meta = metas[i];
+    const endpointName = resolvedNames[i];
+    const endpointPath = meta.path;
+    const folderPath = meta.folderPath;
     
     // Navigate/create nested structure
     let current = structure;
@@ -59,12 +83,19 @@ export function generateApiEndpoints(spec: NormalizedSpec, config: Config = {}):
     if (folderPath) {
       // Split folder path into segments
       const folderSegments = folderPath.split('/').filter(Boolean);
-      
-      // Create nested objects for each folder segment
+
+      // Create nested objects for each folder segment.
+      // If we encounter an existing string value (previously used as a leaf),
+      // we convert it into an object and preserve the original path under `_self`.
       for (const segment of folderSegments) {
-        if (!current[segment] || typeof current[segment] === 'string') {
+        const existing = current[segment];
+
+        if (!existing) {
           current[segment] = {};
+        } else if (typeof existing === 'string') {
+          current[segment] = { _self: existing };
         }
+
         current = current[segment] as ApiEndpointsStructure;
       }
     }
@@ -75,6 +106,112 @@ export function generateApiEndpoints(spec: NormalizedSpec, config: Config = {}):
   
   // Generate TypeScript code from structure
   return generateTypeScriptCode(structure);
+}
+
+/**
+ * Resolves unique, human‑readable keys for each endpoint within its folder.
+ *
+ * The algorithm works as follows:
+ * - Endpoints are grouped by (folderPath, baseName).
+ * - If a group contains a single endpoint, its key is just the baseName.
+ * - If there are multiple endpoints:
+ *   - When they share the same path but differ by HTTP method
+ *     (e.g. GET/POST on the same URL), we suffix keys with the method:
+ *     `users_profile_get`, `users_profile_post`, etc.
+ *   - When they have different paths (e.g. `/users` and `/users/{user_id}`),
+ *     we derive a suffix from path parameters:
+ *       - `/users`          -> `users`
+ *       - `/users/{id}`     -> `users_by_id`
+ *       - `/users/{a}/{b}`  -> `users_by_a_and_b`
+ *   - If collisions still exist, we append the HTTP method as a further suffix.
+ *
+ * This keeps endpoint names stable, readable and avoids accidental overwrites.
+ */
+function resolveEndpointNames(metas: EndpointMeta[]): string[] {
+  const result: string[] = new Array(metas.length);
+
+  // Group indices by (folderPath, baseName)
+  const groups = new Map<string, number[]>();
+  metas.forEach((meta, index) => {
+    const key = `${meta.folderPath}::${meta.baseName}`;
+    const list = groups.get(key);
+    if (list) {
+      list.push(index);
+    } else {
+      groups.set(key, [index]);
+    }
+  });
+
+  // Resolve names per group
+  for (const indices of groups.values()) {
+    if (indices.length === 1) {
+      const i = indices[0];
+      result[i] = metas[i].baseName;
+      continue;
+    }
+
+    // Multiple endpoints share the same (folderPath, baseName)
+    const groupMetas = indices.map((i) => metas[i]);
+    const uniquePaths = new Set(groupMetas.map((m) => m.path));
+    const usedKeys = new Set<string>();
+
+    for (let gi = 0; gi < groupMetas.length; gi += 1) {
+      const meta = groupMetas[gi];
+      let key = meta.baseName;
+
+      if (uniquePaths.size === 1) {
+        // Same path, different HTTP methods -> suffix with method
+        key = `${meta.baseName}_${meta.method.toLowerCase()}`;
+      } else {
+        // Different paths: try to build a suffix from path parameters
+        const paramSuffix = buildParamSuffix(meta.path);
+        if (paramSuffix) {
+          key = `${meta.baseName}_${paramSuffix}`;
+        }
+      }
+
+      // Ensure key is unique within this group
+      let finalKey = key;
+      if (usedKeys.has(finalKey)) {
+        finalKey = `${key}_${meta.method.toLowerCase()}`;
+      }
+      let counter = 2;
+      while (usedKeys.has(finalKey)) {
+        finalKey = `${key}_${meta.method.toLowerCase()}_${counter}`;
+        counter += 1;
+      }
+
+      usedKeys.add(finalKey);
+      result[indices[gi]] = finalKey;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Builds a suffix for an endpoint name based on its path parameters.
+ *
+ * Examples:
+ * - "/api/v1/users/{user_id}"              -> "by_user_id"
+ * - "/api/v1/items/{category}/{item_id}"   -> "by_category_and_item_id"
+ * - "/api/v1/users"                        -> "" (no parameters)
+ */
+function buildParamSuffix(path: string): string {
+  const segments = path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+  const paramNames = segments
+    .filter((segment) => segment.startsWith('{') && segment.endsWith('}'))
+    .map((segment) => segment.slice(1, -1));
+
+  if (paramNames.length === 0) {
+    return '';
+  }
+
+  if (paramNames.length === 1) {
+    return `by_${paramNames[0]}`;
+  }
+
+  return `by_${paramNames.join('_and_')}`;
 }
 
 /**
