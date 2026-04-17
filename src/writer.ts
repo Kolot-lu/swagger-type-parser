@@ -2,7 +2,6 @@ import { mkdir, writeFile, rm } from 'fs/promises';
 import { join, dirname, relative, resolve } from 'path';
 import { existsSync } from 'fs';
 import type { TypeDefinition, NormalizedSpec } from './types.js';
-import { pathToEndpointName } from './generator/index.js';
 import { generateApiEndpointsFile } from './generator/api-endpoints-generator.js';
 
 /**
@@ -67,16 +66,23 @@ export async function writeTypes(
 
   // Write endpoint types (grouped by path segments)
   const endpointsByFolder = new Map<string, Map<string, TypeDefinition>>();
+  const endpointIndexEntries: Array<{ filePath: string; exportedTypes: string[] }> = [];
 
-  for (const [name, type] of endpointTypes.entries()) {
-    // Extract path from endpoint by looking it up in the spec
-    const endpointPath = extractPathFromEndpoint(name, spec, options.pathPrefixSkip || 0);
-    const folderPath = getEndpointFolderPath(endpointPath, options.pathPrefixSkip || 0);
+  for (const [legacyName, type] of endpointTypes.entries()) {
+    const endpointFilePath = type.filePath || legacyName;
+    const pathSegments = endpointFilePath.split('/');
+    const name = pathSegments[pathSegments.length - 1];
+    const folderPath =
+      pathSegments.length > 1 ? pathSegments.slice(0, -1).join('/') : '';
     
     if (!endpointsByFolder.has(folderPath)) {
       endpointsByFolder.set(folderPath, new Map());
     }
     endpointsByFolder.get(folderPath)!.set(name, type);
+    endpointIndexEntries.push({
+      filePath: endpointFilePath,
+      exportedTypes: type.exportedTypes || [],
+    });
   }
 
   for (const [folderPath, endpoints] of endpointsByFolder.entries()) {
@@ -101,7 +107,8 @@ export async function writeTypes(
   }
 
   // Write index files
-  await writeIndexFiles(outputDir, schemasDir, endpointsDir, schemaTypes, endpointsByFolder, options.generateApiEndpoints);
+  await validateEndpointExports(endpointIndexEntries);
+  await writeIndexFiles(outputDir, schemaTypes, endpointIndexEntries, options.generateApiEndpoints);
 }
 
 /**
@@ -220,10 +227,8 @@ async function writeApiEndpoints(
  */
 async function writeIndexFiles(
   outputDir: string,
-  schemasDir: string,
-  endpointsDir: string,
   schemaTypes: Map<string, TypeDefinition>,
-  endpointsByFolder: Map<string, Map<string, TypeDefinition>>,
+  endpointIndexEntries: Array<{ filePath: string; exportedTypes: string[] }>,
   generateApiEndpoints?: boolean
 ): Promise<void> {
   // Write schemas index
@@ -234,11 +239,8 @@ async function writeIndexFiles(
 
   // Write endpoints index
   const endpointExports: string[] = [];
-  for (const [folderPath, endpoints] of endpointsByFolder.entries()) {
-    for (const name of endpoints.keys()) {
-      const relativePath = folderPath === '' ? `./endpoints/${name}` : `./endpoints/${folderPath}/${name}`;
-      endpointExports.push(`export type { ${name} } from '${relativePath}';`);
-    }
+  for (const endpointEntry of endpointIndexEntries) {
+    endpointExports.push(`export * from './endpoints/${endpointEntry.filePath}';`);
   }
 
   // Write main index
@@ -266,56 +268,17 @@ async function writeIndexFiles(
 }
 
 /**
- * Extracts path from endpoint name by looking it up in the spec
- * @param endpointName - Endpoint operation ID
- * @param spec - Normalized specification
- * @param pathPrefixSkip - Number of path segments to skip (must match the skip used when generating the name)
- * @returns API path
+ * Validates that generated endpoint files export at least one type.
+ * This is a safety guard that catches regressions in code generation before writing barrel exports.
  */
-function extractPathFromEndpoint(endpointName: string, spec: NormalizedSpec, pathPrefixSkip: number = 0): string {
-  for (const [path, pathItem] of Object.entries(spec.paths)) {
-    const methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as const;
-    for (const method of methods) {
-      const operation = pathItem[method];
-      if (operation) {
-        // Check if this endpoint matches by comparing path-based name with the same skip value
-        const pathBasedName = pathToEndpointName(path, pathPrefixSkip);
-        if (pathBasedName === endpointName || operation.operationId === endpointName) {
-          return path;
-        }
-      }
-    }
+async function validateEndpointExports(
+  endpointIndexEntries: Array<{ filePath: string; exportedTypes: string[] }>
+): Promise<void> {
+  const emptyExports = endpointIndexEntries.filter((entry) => entry.exportedTypes.length === 0);
+  if (emptyExports.length > 0) {
+    const files = emptyExports.map((entry) => entry.filePath).join(', ');
+    throw new Error(`Generated endpoint files without exports detected: ${files}`);
   }
-  return '/';
-}
-
-
-/**
- * Gets folder path for endpoint based on path segments (all except last)
- * @param path - API path
- * @param pathPrefixSkip - Number of path segments to skip
- * @returns Folder path (e.g., "auth" for "/api/v1/auth/login" with skip=1)
- */
-function getEndpointFolderPath(path: string, pathPrefixSkip: number = 0): string {
-  if (path === '/' || path.trim() === '' || path.replace(/^\/+|\/+$/g, '') === '') {
-    return '';
-  }
-  
-  const segments = path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
-  const filteredSegments = segments.filter(segment => !segment.includes('{') && !segment.includes('}'));
-  const skipCount = pathPrefixSkip > 0 ? pathPrefixSkip * 2 : 0;
-  const skippedSegments = filteredSegments.slice(skipCount);
-  
-  // If no segments or only one segment, return empty (no subfolder)
-  if (skippedSegments.length <= 1) {
-    return '';
-  }
-  
-  // Take all segments except the last one
-  const folderSegments = skippedSegments.slice(0, -1);
-  const processedSegments = folderSegments.map(segment => segment.replace(/-/g, '_'));
-  
-  return processedSegments.join('/').toLowerCase();
 }
 
 /**

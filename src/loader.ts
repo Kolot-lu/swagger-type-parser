@@ -16,7 +16,8 @@ export async function loadSpec(input: string): Promise<OpenAPISpec | SwaggerSpec
     content = loadLocalFile(input);
   }
 
-  const spec = JSON.parse(content) as OpenAPISpec | SwaggerSpec;
+  const rawSpec = JSON.parse(content) as OpenAPISpec | SwaggerSpec;
+  const spec = sanitizeSpecForParser(rawSpec);
 
   // Basic validation
   if (!isOpenAPI(spec) && !isSwagger(spec)) {
@@ -24,6 +25,30 @@ export async function loadSpec(input: string): Promise<OpenAPISpec | SwaggerSpec
   }
 
   return spec;
+}
+
+/**
+ * Sanitizes schema refs so parser can keep type names without recursively
+ * expanding every reference branch in large specs.
+ */
+export function sanitizeSpecForParser(spec: OpenAPISpec | SwaggerSpec): OpenAPISpec | SwaggerSpec {
+  const sanitized = structuredClone(spec) as OpenAPISpec | SwaggerSpec;
+  const schemas =
+    isOpenAPI(sanitized) ? sanitized.components?.schemas : sanitized.definitions;
+
+  if (!schemas || typeof schemas !== 'object') {
+    return sanitized;
+  }
+
+  for (const [schemaName, schemaValue] of Object.entries(schemas)) {
+    if (isRefObject(schemaValue)) {
+      schemas[schemaName] = wrapRef(schemaValue.$ref);
+      continue;
+    }
+    schemas[schemaName] = sanitizeSchemaNode(schemaValue) as typeof schemas[string];
+  }
+
+  return sanitized;
 }
 
 /**
@@ -103,5 +128,53 @@ export function isSwagger(spec: unknown): spec is SwaggerSpec {
     'swagger' in spec &&
     typeof (spec as { swagger: unknown }).swagger === 'string'
   );
+}
+
+function sanitizeSchemaNode(node: unknown): unknown {
+  if (Array.isArray(node)) {
+    return node.map((item) => sanitizeSchemaNode(item));
+  }
+  if (!node || typeof node !== 'object') {
+    return node;
+  }
+  if (isRefObject(node)) {
+    return { $ref: toNonResolvableSchemaRef(node.$ref) };
+  }
+
+  const clone: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node)) {
+    if ((key === 'oneOf' || key === 'anyOf' || key === 'allOf') && Array.isArray(value)) {
+      clone[key] = value.map((item) =>
+        isRefObject(item) ? wrapRef(item.$ref) : sanitizeSchemaNode(item)
+      );
+      continue;
+    }
+    clone[key] = sanitizeSchemaNode(value);
+  }
+
+  return clone;
+}
+
+function isRefObject(value: unknown): value is { $ref: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    '$ref' in value &&
+    typeof (value as { $ref: unknown }).$ref === 'string'
+  );
+}
+
+function toNonResolvableSchemaRef(ref: string): string {
+  return `schema:///${extractRefTypeName(ref)}`;
+}
+
+function wrapRef(ref: string): { allOf: Array<{ $ref: string }> } {
+  return { allOf: [{ $ref: toNonResolvableSchemaRef(ref) }] };
+}
+
+function extractRefTypeName(ref: string): string {
+  const parts = ref.split('/').filter(Boolean);
+  return parts[parts.length - 1] || ref;
 }
 

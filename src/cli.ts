@@ -32,6 +32,8 @@ async function main(): Promise<void> {
     .option('--verbose', 'Log verbose debug information', false)
     .option('--path-prefix-skip <number>', 'Number of path segments to skip from beginning (e.g., 1 = skip first 2 segments: "/api/v1/auth/login" -> "auth_login")', (value) => parseInt(value, 10))
     .option('--generate-api-endpoints', 'Generate API endpoint URL constants for easy access from frontend', false)
+    .option('--compat-endpoint-names', 'Generate backward-compatible aliases for legacy endpoint type names', true)
+    .option('--strict-fallback-types', 'Use strict unknown-based fallback types', true)
     .parse(process.argv);
 
   const options = program.opts<Config & { config?: string }>();
@@ -47,6 +49,8 @@ async function main(): Promise<void> {
         verbose: options.verbose,
         pathPrefixSkip: options.pathPrefixSkip,
         generateApiEndpoints: options.generateApiEndpoints,
+        compatEndpointNames: options.compatEndpointNames,
+        strictFallbackTypes: options.strictFallbackTypes,
       },
       options.config
     );

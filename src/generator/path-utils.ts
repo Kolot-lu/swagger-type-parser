@@ -1,6 +1,7 @@
 /**
  * Utility functions for working with API paths and endpoint names
  */
+import type { HttpMethod } from '../types.js';
 
 /**
  * Extracts type name from a $ref string
@@ -33,34 +34,73 @@ export function extractTypeNameFromRef(ref: string): string {
  * pathToEndpointName("/", 0) // returns "root"
  */
 export function pathToEndpointName(path: string, pathPrefixSkip: number = 0): string {
+  const skippedSegments = getEndpointSegments(path, pathPrefixSkip);
+  if (skippedSegments.length === 0) {
+    return 'root';
+  }
+
+  const processedSegments = skippedSegments.map((segment) => segment.replace(/-/g, '_'));
+  return processedSegments.join('_').toLowerCase();
+}
+
+/**
+ * Converts an API path and method to a unique endpoint file/type base name.
+ * The method suffix guarantees uniqueness for specs that use the same path
+ * with multiple HTTP methods.
+ */
+export function pathAndMethodToEndpointName(
+  path: string,
+  method: HttpMethod,
+  pathPrefixSkip: number = 0
+): string {
+  const baseName = pathToEndpointName(path, pathPrefixSkip);
+  return `${baseName}_${method}`;
+}
+
+/**
+ * Returns a folder path for generated endpoint files.
+ * The folder includes all endpoint path segments except the last one.
+ */
+export function getEndpointFolderPath(path: string, pathPrefixSkip: number = 0): string {
+  const skippedSegments = getEndpointSegments(path, pathPrefixSkip);
+  if (skippedSegments.length <= 1) {
+    return '';
+  }
+
+  const folderSegments = skippedSegments.slice(0, -1);
+  return folderSegments.map((segment) => segment.replace(/-/g, '_').toLowerCase()).join('/');
+}
+
+/**
+ * Returns endpoint path segments with prefix trimming and path params removed.
+ */
+function getEndpointSegments(path: string, pathPrefixSkip: number): string[] {
   // Handle empty path "/" -> "root"
   if (path === '/' || path.trim() === '' || path.replace(/^\/+|\/+$/g, '') === '') {
-    return 'root';
+    return [];
   }
 
   // Remove leading/trailing slashes and split into segments
   const segments = path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
   
-  // Filter out segments with curly braces (path parameters like {id}, {entity_type}, etc.)
-  const filteredSegments = segments.filter(segment => !segment.includes('{') && !segment.includes('}'));
+  // Convert path parameters to stable semantic segments to preserve uniqueness.
+  // Example: "/users/{id}" -> ["users", "by_id"].
+  const normalizedSegments = segments.map((segment) => {
+    const match = segment.match(/^\{(.+)\}$/);
+    if (!match) {
+      return segment;
+    }
+    const paramName = match[1].replace(/[^a-zA-Z0-9_]/g, '_');
+    return `by_${paramName}`;
+  });
   
   // Skip specified number of segments
   // skip=0 means skip 0 segments
   // skip=1 means skip first 2 segments (indices 0 and 1)
   // skip=2 means skip first 4 segments (indices 0, 1, 2, 3)
   const skipCount = pathPrefixSkip > 0 ? pathPrefixSkip * 2 : 0;
-  const skippedSegments = filteredSegments.slice(skipCount);
+  const skippedSegments = normalizedSegments.slice(skipCount);
   
-  // If no segments left after filtering, return "root"
-  if (skippedSegments.length === 0) {
-    return 'root';
-  }
-  
-  // Replace dashes with underscores in all segments
-  // This is especially important for the last segment to maintain consistency
-  const processedSegments = skippedSegments.map(segment => segment.replace(/-/g, '_'));
-  
-  // Convert to snake_case by joining with underscores and converting to lowercase
-  return processedSegments.join('_').toLowerCase();
+  return skippedSegments;
 }
 

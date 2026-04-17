@@ -113,7 +113,7 @@ function convertSwaggerPaths(
         if (bodyParam && bodyParam.schema) {
           // Remove body parameter from parameters array
           operation.parameters = operation.parameters.filter(
-            (p) => !(isRef(p) ? false : p.in !== 'body')
+            (p) => isRef(p) || p.in !== 'body'
           );
 
           // Add requestBody

@@ -45,17 +45,26 @@ export function generateTypes(
   // Generate endpoint types from paths
   const endpointTypes = generateEndpointTypes(spec, config);
   for (const endpoint of endpointTypes) {
-    const fileName = `${endpoint.operationId}`;
-    const code = generateEndpointTypeCode(endpoint, spec);
+    const fileName = endpoint.fileName;
+    const endpointFilePath =
+      endpoint.folderPath === '' ? fileName : `${endpoint.folderPath}/${fileName}`;
+    const code = generateEndpointTypeCode(endpoint, spec, config);
     const dependencies = extractEndpointDependencies(endpoint);
-    types.set(`endpoint:${fileName}`, {
+    types.set(`endpoint:${endpoint.path}:${endpoint.method}`, {
       name: fileName,
       code,
       dependencies,
+      filePath: endpointFilePath,
+      exportedTypes: extractExportedTypeNames(code),
     });
   }
 
   return types;
+}
+
+function extractExportedTypeNames(code: string): string[] {
+  const matches = code.matchAll(/^export type ([A-Za-z0-9_]+)\s*=/gm);
+  return Array.from(matches, (match) => match[1]);
 }
 
 // Re-export utilities that might be needed by other modules

@@ -148,7 +148,7 @@ export function schemaToTypeScript(
 
   if (schema.type === 'array') {
     if (!schema.items) {
-      return 'undefined[]';
+      return 'unknown[]';
     }
     const itemType = isRef(schema.items)
       ? extractTypeNameFromRef(schema.items.$ref)
@@ -183,7 +183,7 @@ function generateObjectType(
       return 'Record<string, never>';
     }
     if (schema.additionalProperties === true) {
-      return 'Record<string, undefined>';
+      return 'Record<string, unknown>';
     }
     if (schema.additionalProperties) {
       const valueType = isRef(schema.additionalProperties)
@@ -191,7 +191,7 @@ function generateObjectType(
         : schemaToTypeScript(schema.additionalProperties as Schema, spec, context);
       return `Record<string, ${valueType}>`;
     }
-    return 'Record<string, undefined>';
+    return 'Record<string, unknown>';
   }
 
   const required = schema.required || [];
@@ -227,7 +227,7 @@ function generateObjectType(
 
   if (schema.additionalProperties !== undefined && schema.additionalProperties !== false) {
     if (schema.additionalProperties === true) {
-      properties.push('  [key: string]: undefined;');
+      properties.push('  [key: string]: unknown;');
     } else {
       const valueType = isRef(schema.additionalProperties)
         ? extractTypeNameFromRef(schema.additionalProperties.$ref)
@@ -258,7 +258,7 @@ function generatePrimitiveType(schema: Schema): string {
     case 'boolean':
       return 'boolean';
     default:
-      return 'undefined';
+      return 'unknown';
   }
 }
 

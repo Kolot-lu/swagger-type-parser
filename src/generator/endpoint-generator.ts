@@ -12,9 +12,16 @@ import type {
   TypeDefinition,
   Parameter,
   Config,
+  Schema,
+  Reference,
 } from '../types.js';
 import { isRef, resolveRef } from '../parser.js';
-import { pathToEndpointName, extractTypeNameFromRef } from './path-utils.js';
+import {
+  pathToEndpointName,
+  pathAndMethodToEndpointName,
+  getEndpointFolderPath,
+  extractTypeNameFromRef,
+} from './path-utils.js';
 import { schemaToTypeScript } from './schema-generator.js';
 import { generateParameterType } from './parameter-generator.js';
 
@@ -42,8 +49,10 @@ export function generateEndpointTypes(
       const operation = pathItem[method];
       if (!operation) continue;
 
-      // Generate endpoint name from path (instead of using operationId)
-      const operationId = pathToEndpointName(path, pathPrefixSkip);
+      // Use method-aware naming to avoid collisions on the same path.
+      const operationId = pathAndMethodToEndpointName(path, method, pathPrefixSkip);
+      const legacyOperationId = pathToEndpointName(path, pathPrefixSkip);
+      const folderPath = getEndpointFolderPath(path, pathPrefixSkip);
       const tag = operation.tags?.[0] || 'default';
 
       // Extract and categorize parameters
@@ -94,6 +103,9 @@ export function generateEndpointTypes(
 
       endpoints.push({
         operationId,
+        legacyOperationId,
+        fileName: operationId,
+        folderPath,
         method,
         path,
         tag,
@@ -168,46 +180,79 @@ function generateResponseTypes(
     if (isRef(response)) {
       const resolved = resolveRef(response.$ref, spec);
       if (resolved && 'content' in resolved) {
-        const content = resolved.content;
-        if (content && content['application/json']?.schema) {
-          const schema = content['application/json'].schema;
-          const typeName = `${operationId}_${statusCode}Response`;
-          const typeCode = isRef(schema)
-            ? extractTypeNameFromRef(schema.$ref)
-            : schemaToTypeScript(schema, spec, typeName);
-          const description = resolved.description;
-          const comment = description
-            ? `/**\n * ${description.split('\n').join('\n * ')}\n */\n`
-            : '';
-          responses[statusCode] = {
-            name: typeName,
-            code: `${comment}export type ${typeName} = ${typeCode};`,
-            dependencies: isRef(schema) ? [extractTypeNameFromRef(schema.$ref)] : [],
-          };
-        }
+        responses[statusCode] = createResponseTypeDefinition(
+          operationId,
+          statusCode,
+          resolved.description,
+          resolved.content,
+          spec
+        );
       }
     } else {
       const responseObj = response as { content?: Record<string, { schema?: unknown }>; description?: string };
-      if (responseObj.content && responseObj.content['application/json']?.schema) {
-        const schema = responseObj.content['application/json'].schema;
-        const typeName = `${operationId}_${statusCode}Response`;
-        const typeCode = isRef(schema)
-          ? extractTypeNameFromRef(schema.$ref)
-          : schemaToTypeScript(schema, spec, typeName);
-        const description = responseObj.description;
-        const comment = description
-          ? `/**\n * ${description.split('\n').join('\n * ')}\n */\n`
-          : '';
-        responses[statusCode] = {
-          name: typeName,
-          code: `${comment}export type ${typeName} = ${typeCode};`,
-          dependencies: isRef(schema) ? [extractTypeNameFromRef(schema.$ref)] : [],
-        };
-      }
+      responses[statusCode] = createResponseTypeDefinition(
+        operationId,
+        statusCode,
+        responseObj.description,
+        responseObj.content,
+        spec
+      );
     }
   }
 
   return responses;
+}
+
+function createResponseTypeDefinition(
+  operationId: string,
+  statusCode: string,
+  description: string | undefined,
+  content: Record<string, { schema?: unknown }> | undefined,
+  spec: NormalizedSpec
+): TypeDefinition {
+  const typeName = `${operationId}_${statusCode}Response`;
+  const mediaSchema = pickResponseSchema(content);
+  const typeCode = mediaSchema
+    ? isRef(mediaSchema)
+      ? extractTypeNameFromRef(mediaSchema.$ref)
+      : schemaToTypeScript(mediaSchema, spec, typeName)
+    : isNoBodyStatus(statusCode)
+      ? 'void'
+      : 'unknown';
+
+  const comment = description
+    ? `/**\n * ${description.split('\n').join('\n * ')}\n */\n`
+    : '';
+
+  return {
+    name: typeName,
+    code: `${comment}export type ${typeName} = ${typeCode};`,
+    dependencies: mediaSchema && isRef(mediaSchema) ? [extractTypeNameFromRef(mediaSchema.$ref)] : [],
+  };
+}
+
+function pickResponseSchema(
+  content: Record<string, { schema?: unknown }> | undefined
+): Schema | Reference | undefined {
+  if (!content) {
+    return undefined;
+  }
+
+  if (content['application/json']?.schema) {
+    return content['application/json'].schema as Schema | Reference;
+  }
+
+  for (const mediaType of Object.values(content)) {
+    if (mediaType?.schema) {
+      return mediaType.schema as Schema | Reference;
+    }
+  }
+
+  return undefined;
+}
+
+function isNoBodyStatus(statusCode: string): boolean {
+  return statusCode === '204' || statusCode === '205' || statusCode === '304';
 }
 
 /**
@@ -225,7 +270,8 @@ function generateResponseTypes(
  */
 export function generateEndpointTypeCode(
   endpoint: EndpointType,
-  spec: NormalizedSpec
+  spec: NormalizedSpec,
+  config: Config = {}
 ): string {
   const lines: string[] = [];
 
@@ -280,6 +326,50 @@ export function generateEndpointTypeCode(
     lines.push(response.code);
   }
 
+  if (config.compatEndpointNames && endpoint.legacyOperationId !== endpoint.operationId) {
+    lines.push(...generateCompatibilityAliases(endpoint));
+  }
+
   return lines.join('\n\n');
+}
+
+/**
+ * Generates legacy aliases so existing imports continue to work during migration.
+ */
+function generateCompatibilityAliases(endpoint: EndpointType): string[] {
+  const aliases: string[] = [];
+  const oldBase = endpoint.legacyOperationId;
+  const oldToNew = new Map<string, string>();
+
+  if (endpoint.parameters.path) {
+    oldToNew.set(`${oldBase}_PathParams`, endpoint.parameters.path.name);
+  }
+  if (endpoint.parameters.query) {
+    oldToNew.set(`${oldBase}_QueryParams`, endpoint.parameters.query.name);
+  }
+  if (endpoint.parameters.header) {
+    oldToNew.set(`${oldBase}_HeaderParams`, endpoint.parameters.header.name);
+  }
+  if (endpoint.requestBody) {
+    oldToNew.set(`${oldBase}_RequestBody`, endpoint.requestBody.name);
+  }
+
+  for (const [statusCode, response] of Object.entries(endpoint.responses)) {
+    oldToNew.set(`${oldBase}_${statusCode}Response`, response.name);
+  }
+
+  if (oldToNew.size === 0) {
+    return aliases;
+  }
+
+  aliases.push('/** Backward-compatible aliases for legacy endpoint naming. */');
+  for (const [legacyName, nextName] of oldToNew.entries()) {
+    if (legacyName === nextName) {
+      continue;
+    }
+    aliases.push(`export type ${legacyName} = ${nextName};`);
+  }
+
+  return aliases;
 }
 

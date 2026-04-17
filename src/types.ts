@@ -16,6 +16,10 @@ export interface Config {
   pathPrefixSkip?: number;
   /** Whether to generate API endpoint URL constants */
   generateApiEndpoints?: boolean;
+  /** Whether to emit backward-compatible endpoint type aliases */
+  compatEndpointNames?: boolean;
+  /** Whether to force strict unknown-based fallback types */
+  strictFallbackTypes?: boolean;
 }
 
 /**
@@ -186,6 +190,9 @@ export interface Schema {
  */
 export interface EndpointType {
   operationId: string;
+  legacyOperationId: string;
+  fileName: string;
+  folderPath: string;
   method: HttpMethod;
   path: string;
   tag: string;
@@ -205,5 +212,7 @@ export interface TypeDefinition {
   name: string;
   code: string;
   dependencies: string[];
+  filePath?: string;
+  exportedTypes?: string[];
 }
 

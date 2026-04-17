@@ -62,6 +62,12 @@ function filterUndefined(config: Config): Partial<Config> {
   if (config.generateApiEndpoints !== undefined && isFlagProvided('--generate-api-endpoints')) {
     filtered.generateApiEndpoints = config.generateApiEndpoints;
   }
+  if (config.compatEndpointNames !== undefined && isFlagProvided('--compat-endpoint-names')) {
+    filtered.compatEndpointNames = config.compatEndpointNames;
+  }
+  if (config.strictFallbackTypes !== undefined && isFlagProvided('--strict-fallback-types')) {
+    filtered.strictFallbackTypes = config.strictFallbackTypes;
+  }
   
   return filtered;
 }
@@ -92,6 +98,8 @@ export function mergeConfig(cliConfig: Config, configPath?: string): Config {
 
   // CLI config overrides file config (only non-undefined values)
   return {
+    compatEndpointNames: true,
+    strictFallbackTypes: true,
     ...(fileConfig || {}),
     ...filteredCliConfig,
   };
