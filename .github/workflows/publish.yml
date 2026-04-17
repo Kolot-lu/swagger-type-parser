@@ -2,7 +2,7 @@ name: Publish to npm
 
 on:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
   publish:
@@ -37,5 +37,7 @@ jobs:
         run: npm test
 
       - name: Publish to npm
-        run: npm publish --access public --provenance
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
